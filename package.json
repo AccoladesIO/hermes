@@ -1,0 +1,17 @@
+{
+  "name": "hermes",
+  "version": "1.0.0",
+  "description": "Hermes — an event-driven microservices task platform",
+  "private": true,
+  "scripts": {
+    "lint": "eslint .",
+    "format": "prettier --write \"**/*.{js,json,md,yml}\"",
+    "format:check": "prettier --check \"**/*.{js,json,md,yml}\""
+  },
+  "license": "ISC",
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.9.6"
+  }
+}

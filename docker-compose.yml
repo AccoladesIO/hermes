@@ -1,0 +1,136 @@
+name: hermes
+
+x-common-env: &common-env
+  NODE_ENV: production
+  LOG_LEVEL: info
+  JWT_SECRET: ${JWT_SECRET:-dev-insecure-secret-change-me}
+
+services:
+  mongo:
+    image: mongo:6.0.8
+    container_name: hermes-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: hermes-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  user-service:
+    build: ./user-service
+    container_name: hermes-user-service
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      PORT: 3000
+      MONGO_URI: mongodb://mongo:27017/users
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+
+  task-service:
+    build: ./task-service
+    container_name: hermes-task-service
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      PORT: 3001
+      MONGO_URI: mongodb://mongo:27017/tasks
+      AMQP_URL: amqp://rabbitmq:5672
+    depends_on:
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "3001:3001"
+
+  notification-service:
+    build: ./notification-service
+    container_name: hermes-notification-service
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      PORT: 3002
+      MONGO_URI: mongodb://mongo:27017/notifications
+      AMQP_URL: amqp://rabbitmq:5672
+    depends_on:
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "3002:3002"
+
+  gateway:
+    build: ./gateway
+    container_name: hermes-gateway
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      PORT: 8080
+      USER_SERVICE_URL: http://user-service:3000
+      TASK_SERVICE_URL: http://task-service:3001
+      NOTIFICATION_SERVICE_URL: http://notification-service:3002
+    depends_on:
+      user-service:
+        condition: service_healthy
+      task-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+
+  # ---- Optional observability stack (enable with: --profile observability) ----
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: hermes-prometheus
+    profiles: ["observability"]
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: hermes-grafana
+    profiles: ["observability"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    volumes:
+      - ./monitoring/grafana-datasource.yml:/etc/grafana/provisioning/datasources/ds.yml:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    ports:
+      - "3003:3000"
+
+volumes:
+  mongo-data:
+  rabbitmq-data:
+  grafana-data:
